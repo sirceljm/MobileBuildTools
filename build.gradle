@@ -1,0 +1,326 @@
+import groovy.json.JsonBuilder
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+
+def stdout = new ByteArrayOutputStream()
+
+def PROJECT_NAME = ""
+def ANDROID_PACKAGE_NAME = ""
+
+def SENCHA_SDK_HOME = ""
+def SENCHA_CMD_HOME = ""
+def SENCHA_ROOT_FOLDER = ""
+
+def PHONEGAP_SDK_HOME = ""
+
+def root_dir = project.projectDir.absolutePath
+def www_dir = ""
+
+def ANT_COMMAND = ""
+def ADB_COMMAND = ""
+def ANDROID_COMMAND = ""
+def SENCHA_COMMAND = ""
+def PHONEGAP_CREATE_COMMAND_ANDROID = ""
+def COMPASS_COMMAND = ""
+
+if (System.properties['os.name'].toLowerCase().contains('windows')) {
+    ANT_COMMAND = "ant.bat"
+    ADB_COMMAND = "adb.exe"
+    ANDROID_COMMAND = "android.bat"
+    SENCHA_COMMAND = "sencha.cmd"
+    COMPASS_COMMAND = "compass.bat"
+    PHONEGAP_CREATE_COMMAND_ANDROID = PHONEGAP_SDK_HOME+"/lib/android/bin/create.bat"
+} else {
+    // TODO
+}
+
+def config = null
+def userFilename = root_dir+"/gradle_build_settings.json" 
+def userFile = null
+def userProperties = new Object()
+
+def availableAndroidBuildTagets = null
+def availableAndroidBuildTagets_list = null
+def currentAndroidBuildTarget = null
+
+// RUN BEFORE START FUNCTIONS
+def _createUserPropertiesFileIfDoesntExist = {
+    userFile = new File(userFilename)
+    if(!userFile.exists()){
+        userFile.createNewFile()
+
+        def builder = new JsonBuilder()
+        def root = builder.config {
+            names {
+                project_name project.projectDir.getName()
+                android_package_name ""
+            }
+            paths {
+               sencha_sdk_home ""
+               sencha_cmd_home ""
+               sencha_root_folder "www"
+
+               phonegap_sdk_home ""
+
+            }
+            user_properties {
+                android_target ""
+            }
+        }
+        userFile.write(JsonOutput.prettyPrint(builder.toString()))
+    }else{
+        println "Config file already exists!"
+    }
+
+}
+_createUserPropertiesFileIfDoesntExist()
+
+def _defineVariables = {
+    config = new JsonSlurper().parseText(userFile.text)
+
+    PROJECT_NAME = config.config.names.project_name
+    ANDROID_PACKAGE_NAME = config.config.names.android_package_name
+
+    SENCHA_SDK_HOME = config.config.paths.sencha_sdk_home
+    SENCHA_CMD_HOME = config.config.paths.sencha_cmd_home
+    SENCHA_ROOT_FOLDER = config.config.paths.sencha_root_folder
+
+    PHONEGAP_SDK_HOME = config.config.paths.phonegap_sdk_home
+
+    www_dir = root_dir+"/"+SENCHA_ROOT_FOLDER
+}
+_defineVariables()
+
+def _getAvailableAndroidBuildTargets = {
+    def targets = new ByteArrayOutputStream()
+    exec {
+        commandLine ANDROID_COMMAND, "list", "target", "-c"
+        standardOutput = targets
+        ignoreExitValue = true
+    }
+    availableAndroidBuildTagets = targets
+    availableAndroidBuildTagets_list = targets.toString().split("\\r?\\n")
+}
+
+// END RUN BEFORE START FUNCTIONS
+
+task "0.1 Create Gradle config file" << {
+    // _createUserPropertiesFileIfDoesntExist runs every time so it is not necessary to include it here
+}
+
+task "0.2 Help & config check" << {
+    // TODO
+}
+
+task "1.1 Create Sencha app" << {
+	exec {
+            commandLine SENCHA_COMMAND, "-sdk", SENCHA_SDK_HOME, "generate", "app", "-path", www_dir, "-name", PROJECT_NAME
+            standardOutput = stdout
+            ignoreExitValue = true
+    }
+    // add local.properties file with skip.sass to speed up build
+    localPropertiesFile = new File(www_dir+"/local.properties")
+    if(!localPropertiesFile.exists()){
+        localPropertiesFile.createNewFile()
+        localPropertiesFile.write("skip.sass")
+        println "Created local.properties file"
+    }
+    
+    print stdout
+}
+
+task "1.2.1 Create Cordova Android app" << {
+    _getAvailableAndroidBuildTargets()
+
+	def targets_list = new ByteArrayOutputStream()
+
+	def phonegap_create_output = new ByteArrayOutputStream()
+
+	exec {
+            commandLine ANDROID_COMMAND, "list", "target"
+            standardOutput = targets_list
+            ignoreExitValue = true
+    }
+
+    println ""
+    println targets_list
+
+    def console = System.console()
+    if (console) {
+        def build_target = console.readLine('Please select one of available build targets:\r\n\r\n'+availableAndroidBuildTagets+'\r\n>')
+        
+        if(build_target in availableAndroidBuildTagets_list == true){
+        	exec {
+	            commandLine PHONEGAP_CREATE_COMMAND_ANDROID, build_target, ANDROID_PACKAGE_NAME, PROJECT_NAME
+	            standardOutput = phonegap_create_output
+	            ignoreExitValue = true
+	    	}
+
+	    	println phonegap_create_output
+        }else{
+        	println "Cannot find target!"
+        }
+    } else {
+        logger.error "Cannot get console."
+    }
+}
+
+task _copySenchaToAndroidFolderDebug << {
+    if(config.config.user_properties.android_target){
+        delete config.config.user_properties.android_target+"/assets/www"
+        copy{
+            from SENCHA_ROOT_FOLDER+"/build/"+PROJECT_NAME+"/testing"
+            into config.config.user_properties.android_target+"/assets/www"
+        }
+    }else{
+        println "Currently there is no build tagret selected. Please run: 2.1.2 Copy Sencha > assets/www (choose target) and 3.1.2"
+    }
+}
+
+task "2.1.1 Build Sencha > assets/www (current target) and 3.1.1" << {
+    exec {
+        commandLine SENCHA_COMMAND, "app", "build", "package"
+        ignoreExitValue = true
+        workingDir = www_dir
+    }
+    _copySenchaToAndroidFolderDebug.execute()
+    if(config.config.user_properties.android_target){
+        _buildAndRunAndroid.execute()
+    }else{
+        println "Currently there is no build tagret selected. Please run: 3.1.2 Build & Run Android debug app (choose target) "
+    }
+}
+
+
+task "2.1.2 Build Sencha > assets/www (choose target) and 3.1.2" << {
+    _getAvailableAndroidBuildTargets()
+
+    def availableTargetsForBuild = []
+    for(build_target in availableAndroidBuildTagets_list){
+        def folder = new File( root_dir+"/"+build_target )
+        if(folder.exists()){
+            availableTargetsForBuild.add(build_target)
+        }
+    }
+    
+    def console = System.console()
+    if (console) {
+        currentAndroidBuildTarget = console.readLine('Please select one of available build targets: '+availableTargetsForBuild+' > ')
+        config.config.user_properties.android_target = currentAndroidBuildTarget
+        userFile.write(JsonOutput.prettyPrint(new JsonBuilder(config).toString()))
+
+        _copySenchaToAndroidFolderDebug.execute()
+        if(config.config.user_properties.android_target){
+            _buildAndRunAndroid.execute()
+        }else{
+            println "Currently there is no build tagret selected. Please run: 3.1.2 Build & Run Android debug app (choose target) "
+        }
+    } else {
+        logger.error "Cannot get console."
+        return
+    }
+    
+}
+
+// BUILD TASKS
+task _buildAndroidAppDebug << {
+    if(config.config.user_properties.android_target){
+        exec {
+            commandLine ANT_COMMAND, "debug"
+            ignoreExitValue = true
+            workingDir = config.config.user_properties.android_target
+        }
+    }else{
+        println "No android build target is selected"
+    }
+}
+
+task _uninstallAndroidAppDebugOnDevice << {
+    exec {
+        commandLine ADB_COMMAND, "uninstall", ANDROID_PACKAGE_NAME
+        ignoreExitValue = true
+    }
+}
+
+task _installAndroidAppDebugOnDevice << {
+    if(config.config.user_properties.android_target){
+        exec {
+            commandLine ADB_COMMAND, "install", "-r", PROJECT_NAME+"-debug.apk"
+            ignoreExitValue = true
+            workingDir = config.config.user_properties.android_target+"/bin"
+        }
+    }else{
+        println "No android build target is selected"
+    }
+}
+
+task _runAndroidAppDebugOnDevice << {
+    exec {
+        commandLine ADB_COMMAND, "shell", "am", "start", "-n", ANDROID_PACKAGE_NAME+"/."+PROJECT_NAME
+        ignoreExitValue = true
+    }
+}
+
+task _buildAndRunAndroid << {
+    _buildAndroidAppDebug.execute()
+    //_uninstallAndroidAppDebugOnDevice.execute()
+    _installAndroidAppDebugOnDevice.execute()  
+    _runAndroidAppDebugOnDevice.execute()
+}
+
+task "3.1.1 Build & Run Android debug (current target)" << {
+    if(config.config.user_properties.android_target){
+        _buildAndRunAndroid.execute()
+    }else{
+        println "Currently there is no build tagret selected. Please run: 3.1.2 Build & Run Android debug app (choose target) "
+    }
+    
+}
+
+task "3.1.2 Build & Run Android debug (choose target)" << {
+    _getAvailableAndroidBuildTargets()
+
+    def availableTargetsForBuild = []
+    for(build_target in availableAndroidBuildTagets_list){
+        def folder = new File( root_dir+"/"+build_target )
+        if(folder.exists()){
+            availableTargetsForBuild.add(build_target)
+        }
+    }
+    
+    def console = System.console()
+    if (console) {
+        currentAndroidBuildTarget = console.readLine('Please select one of available build targets: '+availableTargetsForBuild+' > ')
+        config.config.user_properties.android_target = currentAndroidBuildTarget
+        userFile.write(JsonOutput.prettyPrint(new JsonBuilder(config).toString()))
+
+        _buildAndRunAndroid.execute()
+    } else {
+        logger.error "Cannot get console."
+        return
+    }
+}
+
+task "3.1.3 Build Android release (current target)" << {
+    
+}
+
+task "3.1.4 Build Android release (choose target)" << {
+    
+}
+
+task "3.1.5 Build Android release (all targets)" << {
+    
+}
+
+task "4.1.1 List Android available build targets" << {
+
+}
+
+task "5.1 Start Compas Watch" << {
+    exec {
+        commandLine COMPASS_COMMAND, "watch", 
+        ignoreExitValue = true
+        workingDir = www_dir+"/resources/sass"
+    }
+}
