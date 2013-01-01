@@ -23,16 +23,6 @@ def SENCHA_COMMAND = ""
 def PHONEGAP_CREATE_COMMAND_ANDROID = ""
 def COMPASS_COMMAND = ""
 
-if (System.properties['os.name'].toLowerCase().contains('windows')) {
-    ANT_COMMAND = "ant.bat"
-    ADB_COMMAND = "adb.exe"
-    ANDROID_COMMAND = "android.bat"
-    SENCHA_COMMAND = "sencha.cmd"
-    COMPASS_COMMAND = "compass.bat"
-    PHONEGAP_CREATE_COMMAND_ANDROID = PHONEGAP_SDK_HOME+"/lib/android/bin/create.bat"
-} else {
-    // TODO
-}
 
 def config = null
 def userFilename = root_dir+"/gradle_build_settings.json" 
@@ -56,11 +46,14 @@ def _createUserPropertiesFileIfDoesntExist = {
                 android_package_name ""
             }
             paths {
-               sencha_sdk_home ""
-               sencha_cmd_home ""
-               sencha_root_folder "www"
+                android_sdk ""
+                ant ""
+                compass ""
+                sencha_sdk ""
+                sencha_cmd ""
+                sencha_root_folder "www"
 
-               phonegap_sdk_home ""
+                phonegap_sdk ""
 
             }
             user_properties {
@@ -81,15 +74,54 @@ def _defineVariables = {
     PROJECT_NAME = config.config.names.project_name
     ANDROID_PACKAGE_NAME = config.config.names.android_package_name
 
-    SENCHA_SDK_HOME = config.config.paths.sencha_sdk_home
-    SENCHA_CMD_HOME = config.config.paths.sencha_cmd_home
+    SENCHA_SDK_HOME = config.config.paths.sencha_sdk
+    SENCHA_CMD_HOME = config.config.paths.sencha_cmd
     SENCHA_ROOT_FOLDER = config.config.paths.sencha_root_folder
 
-    PHONEGAP_SDK_HOME = config.config.paths.phonegap_sdk_home
+    PHONEGAP_SDK_HOME = config.config.paths.phonegap_sdk
 
     www_dir = root_dir+"/"+SENCHA_ROOT_FOLDER
 }
 _defineVariables()
+
+if (System.properties['os.name'].toLowerCase().contains('windows')) {
+    if(config.config.paths.ant){
+        ANT_COMMAND = config.config.paths.ant+"ant.bat"
+    }else{
+        ANT_COMMAND = "ant.bat"
+    }
+
+    if(config.config.paths.android_sdk){
+        ADB_COMMAND = config.config.paths.android_sdk+"/platform-tools/adb.exe"
+    }else{
+        ADB_COMMAND = "adb.exe"
+    }
+    
+    if(config.config.paths.android_sdk){
+        ANDROID_COMMAND = config.config.paths.android_sdk+"/tools/android.bat"
+    }else{
+        ANDROID_COMMAND = "android.bat"
+    }
+    
+    if(config.config.paths.sencha_cmd){
+        SENCHA_COMMAND = config.config.paths.sencha_cmd+"sencha.cmd"
+    }else{
+        SENCHA_COMMAND = "sencha.cmd"
+    }
+
+    if(config.config.paths.compass){
+        COMPASS_COMMAND = config.config.paths.compass+"compass.bat"
+    }else{
+        COMPASS_COMMAND = "compass.bat"
+    }
+    
+    if(config.config.paths.phonegap_sdk){
+        PHONEGAP_CREATE_COMMAND_ANDROID = PHONEGAP_SDK_HOME+"/lib/android/bin/create.bat"
+    }
+    
+} else {
+    // TODO
+}
 
 def _getAvailableAndroidBuildTargets = {
     def targets = new ByteArrayOutputStream()
@@ -102,14 +134,104 @@ def _getAvailableAndroidBuildTargets = {
     availableAndroidBuildTagets_list = targets.toString().split("\\r?\\n")
 }
 
+def testExecutable(command, name, notFoundText, pathInJson){
+    println ""
+
+    println ""
+    println name+":"
+    println "----------------------------------------------------------------------"
+    println ""
+    if(pathInJson){
+        println "Path in your gradle_build_settings.json found."
+        println ""
+        def file = new File(command)
+        if(!file.exists()){
+            println notFoundText
+        }else{
+            println "Command: "+command+" is available."
+        }
+        
+    }else{
+        def path = new ByteArrayOutputStream()
+        exec {
+            commandLine "where", command
+            standardOutput = path
+            ignoreExitValue = true
+        }
+
+        println "Trying to run: '"+command+"'"
+        println ""
+        if(path.toString() != ""){
+            println "Command: "+command+" is available. ("+path.toString().trim()+")"
+        }else{
+            println notFoundText
+        }
+    }
+    println ""
+    println "----------------------------------------------------------------------"
+}
 // END RUN BEFORE START FUNCTIONS
 
 task "0.1 Create Gradle config file" << {
     // _createUserPropertiesFileIfDoesntExist runs every time so it is not necessary to include it here
 }
 
-task "0.2 Help & config check" << {
-    // TODO
+task "0.2 Configuration check" << {
+
+    def android_not_found_message = """
+Command: """+ANDROID_COMMAND+""" cannot be accessed. Please make sure that you have:
+ - Android SDK tools installed
+ - PATH variable in your environment variables and you restarted your computer or
+ - Path to your Android SDK directory defined in gradle_build_settings.json file
+"""
+    testExecutable(ANDROID_COMMAND, "Android", android_not_found_message, config.config.paths.android_sdk);
+
+
+def ant_not_found_message = """
+Command: """+ANT_COMMAND+""" cannot be accessed. Please make sure that you have:
+ - ANT installed
+ - PATH variable in your environment variables and you restarted your computer or
+ - Path to your ANT directory defined in gradle_build_settings.json file
+"""
+    testExecutable(ANT_COMMAND, "ANT", ant_not_found_message, config.config.paths.ant);
+
+def adb_not_found_message = """
+Command: """+ADB_COMMAND+""" cannot be accessed. Please make sure that you have:
+ - Android SDK tools installed
+ - PATH variable in your environment variables and you restarted your computer or
+ - Path to your Android SDK directory defined in gradle_build_settings.json file
+"""
+    testExecutable(ADB_COMMAND, "ADB", adb_not_found_message, config.config.paths.android_sdk);
+
+def sencha_not_found_message = """
+Command: """+SENCHA_COMMAND+""" cannot be accessed. Please make sure that you have:
+ - Sencha CMD tools installed
+ - PATH variable in your environment variables and you restarted your computer or
+ - Path to your Sencha CMD directory defined in gradle_build_settings.json file
+"""
+    testExecutable(SENCHA_COMMAND, "Sencha CMD", sencha_not_found_message, config.config.paths.sencha_cmd);
+
+def compass_not_found_message = """
+Command: """+COMPASS_COMMAND+""" cannot be accessed. Please make sure that you have:
+ - Compass installed
+ - PATH variable in your environment variables and you restarted your computer or
+ - Path to your Compass directory in gradle_build_settings.json file
+"""
+    testExecutable(COMPASS_COMMAND, "Compass", compass_not_found_message, config.config.paths.compass);
+
+def phonegap_not_found_message = """
+Command: """+PHONEGAP_CREATE_COMMAND_ANDROID+""" cannot be accessed. Please make sure that you have:
+ - Compass installed
+ - PATH variable in your environment variables and you restarted your computer or
+ - Path to your Phonegap directory in gradle_build_settings.json file
+"""
+    testExecutable(PHONEGAP_CREATE_COMMAND_ANDROID, "Phonegap Android", phonegap_not_found_message, config.config.paths.phonegap_sdk);
+}
+
+task "0.3 Open configuration help" << {
+    println """
+        
+    """
 }
 
 task "1.1 Create Sencha app" << {
